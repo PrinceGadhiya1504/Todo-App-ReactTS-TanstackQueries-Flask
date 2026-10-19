@@ -1,10 +1,17 @@
 
 import { useRef, useState } from "react";
+import type { FormEvent } from "react";
 import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+  useTodos,
+  useSaveTodo,
+  useToggleTodoStatus,
+  useDeleteTodo,
+} from "@/hooks/useTodos";
+import type { TodoItem, TodoFormData } from "@/types/todo.types";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Card,
   CardContent,
@@ -12,11 +19,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -24,221 +26,117 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Eye, Pencil, Trash } from "lucide-react";
+import { Badge } from "./components/ui/badge";
+import { API_URL } from "./api/todo.api";
 
-const API_URL = "http://127.0.0.1:5000";
-
-type TodoStatus = "pending" | "completed";
-
-interface TodoItem {
-  id: number;
-  name: string;
-  description: string;
-  status: TodoStatus;
-  image: string | null;
-}
-
-interface TodoFormData {
-  name: string;
-  description: string;
-  status: TodoStatus;
-  image: File | null;
-}
-
-interface ApiItemResponse {
-  message: string;
-  item: TodoItem;
-}
-
-interface ApiMessageResponse {
-  message: string;
-}
-
-interface ApiErrorResponse {
-  error?: string;
-}
-
-async function parseResponse<T>(
-  response: Response,
-  fallbackMessage: string,
-): Promise<T> {
-  if (!response.ok) {
-    const data = (await response.json().catch(() => null)) as
-      | ApiErrorResponse
-      | null;
-
-    throw new Error(data?.error || fallbackMessage);
-  }
-
-  return response.json() as Promise<T>;
-}
-
-async function fetchItems(): Promise<TodoItem[]> {
-  const response = await fetch(`${API_URL}/items`);
-
-  return parseResponse<TodoItem[]>(
-    response,
-    "Failed to fetch tasks",
-  );
-}
-
-async function saveItem({ id, item }: { id: number | null; item: TodoFormData; }): Promise<ApiItemResponse> {
-  const formData = new FormData();
-
-  formData.append("name", item.name.trim());
-  formData.append("description", item.description.trim());
-  formData.append("status", item.status);
-
-  if (item.image) {
-    formData.append("image", item.image);
-  }
-
-  const isEditing = id !== null;
-
-  const response = await fetch(isEditing ? `${API_URL}/items/${id}` : `${API_URL}/items`, {
-    method: isEditing ? "PUT" : "POST",
-    body: formData,
-  });
-
-  return parseResponse<ApiItemResponse>(
-    response,
-    isEditing ? "Failed to update task" : "Failed to create task",
-  );
-}
-
-async function updateItemStatus({ id, status }: { id: number; status: TodoStatus; }): Promise<ApiItemResponse> {
-  const response = await fetch(`${API_URL}/items/${id}`, {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ status }),
-  });
-
-  return parseResponse<ApiItemResponse>(
-    response,
-    "Failed to update task status",
-  );
-}
-
-async function deleteItem(id: number): Promise<ApiMessageResponse> {
-  const response = await fetch(`${API_URL}/items/${id}`, {
-    method: "DELETE",
-  });
-
-  return parseResponse<ApiMessageResponse>(
-    response,
-    "Failed to delete task",
-  );
-}
-
-function App() {
-  const queryClient = useQueryClient();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
+export default function App() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [status, setStatus] = useState<TodoStatus>("pending");
   const [file, setFile] = useState<File | null>(null);
   const [editId, setEditId] = useState<number | null>(null);
   const [selectedItem, setSelectedItem] = useState<TodoItem | null>(null);
 
-  const {
-    data: items = [], isPending, isError, error } = useQuery({
-      queryKey: ["items"],
-      queryFn: fetchItems
-    });
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const completedCount = items.filter((item) => item.status === "completed").length;
-  const pendingCount = items.filter((item) => item.status === "pending").length;
+  const { data: items = [], isPending, isError, error } = useTodos();
+  const saveMutation = useSaveTodo();
+  const toggleMutation = useToggleTodoStatus();
+  const deleteMutation = useDeleteTodo();
 
-  const resetForm = () => {
+  const completedTasks = items.filter((item) => item.status === "completed").length;
+  const pendingTasks = items.filter((item) => item.status === "pending").length;
+
+  const isSaving = saveMutation.isPending;
+  const isBusy = isSaving || toggleMutation.isPending;
+
+  function resetForm() {
     setName("");
     setDescription("");
-    setStatus("pending");
     setFile(null);
     setEditId(null);
 
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
-  };
+  }
 
-  const saveMutation = useMutation({
-    mutationFn: saveItem,
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
 
-    onSuccess: async (_data, variables) => {
-      await queryClient.invalidateQueries({
-        queryKey: ["items"],
-      });
+    if (!name.trim()) {
+      return;
+    }
 
-      resetForm();
+    const formData: TodoFormData = {
+      name: name.trim(),
+      description: description.trim(),
+      status: items.find((item) => item.id === editId)?.status ?? "pending",
+      image: file,
+    };
 
-      alert(
-        variables.id === null
-          ? "Task created successfully!"
-          : "Task updated successfully!",
-      );
-    },
-  });
+    saveMutation.mutate({
+      id: editId,
+      item: formData,
+    }, {
+      onSuccess: () => {
+        resetForm();
+      },
+    }
+    );
+  }
 
-  const toggleMutation = useMutation({
-    mutationFn: updateItemStatus,
-
-    onSuccess: () =>
-      queryClient.invalidateQueries({
-        queryKey: ["items"],
-      }),
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: deleteItem,
-
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: ["items"],
-      });
-
-      alert("Task deleted successfully!");
-    },
-  });
-
-  const handleEditClick = (item: TodoItem) => {
+  function handleEdit(item: TodoItem) {
     setEditId(item.id);
     setName(item.name);
     setDescription(item.description);
-    setStatus(item.status);
     setFile(null);
 
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
-  };
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
+  }
 
-    if (!name.trim()) {
-      alert("Task name is required");
+  function handleToggleStatus(item: TodoItem) {
+    toggleMutation.mutate({
+      id: item.id,
+      status:
+        item.status === "completed"
+          ? "pending"
+          : "completed",
+    });
+  }
+
+  function handleDelete(item: TodoItem) {
+    const confirmed = window.confirm(
+      `Are you sure you want to delete "${item.name}"?`
+    );
+
+    if (!confirmed) {
       return;
     }
 
-    saveMutation.mutate({ id: editId, item: { name: name.trim(), description: description.trim(), status, image: file } });
-  };
+    deleteMutation.mutate(item.id, {
+      onSuccess: () => {
+        if (editId === item.id) {
+          resetForm();
+        }
 
-  const handleToggleStatus = (item: TodoItem) => {
-    const newStatus: TodoStatus = item.status === "completed" ? "pending" : "completed";
-    toggleMutation.mutate({ id: item.id, status: newStatus });
-  };
+        if (selectedItem?.id === item.id) {
+          setSelectedItem(null);
+        }
+      },
+    });
+  }
 
-  const handleDelete = (id: number) => {
-    if (window.confirm("Are you sure you want to delete this task?")) {
-      deleteMutation.mutate(id);
-    }
-  };
-
-  const isSaving = saveMutation.isPending;
-  const isBusy = isSaving || toggleMutation.isPending;
-  const mutationError = saveMutation.error || toggleMutation.error || deleteMutation.error;
+  const mutationError =
+    saveMutation.error ??
+    toggleMutation.error ??
+    deleteMutation.error;
 
   return (
     <div className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6">
@@ -332,11 +230,11 @@ function App() {
               </Badge>
 
               <Badge variant="secondary" className="px-3 py-1 text-sm font-medium">
-                Completed: {completedCount}
+                Completed: {completedTasks}
               </Badge>
 
               <Badge variant="outline" className="px-3 py-1 text-sm font-medium">
-                Pending: {pendingCount}
+                Pending: {pendingTasks}
               </Badge>
             </div>
           </div>
@@ -425,7 +323,7 @@ function App() {
                           variant="outline"
                           size="sm"
                           disabled={isSaving}
-                          onClick={() => handleEditClick(item)}
+                          onClick={() => handleEdit(item)}
                           aria-label={`Edit ${item.name}`}
                         >
                           <Pencil className="h-4 w-4" />
@@ -436,7 +334,7 @@ function App() {
                           variant="destructive"
                           size="sm"
                           disabled={deleteMutation.isPending}
-                          onClick={() => handleDelete(item.id)}
+                          onClick={() => handleDelete(item)}
                           aria-label={`Delete ${item.name}`}
                         >
                           <Trash className="h-4 w-4" />
@@ -522,5 +420,3 @@ function App() {
     </div>
   );
 }
-
-export default App;
