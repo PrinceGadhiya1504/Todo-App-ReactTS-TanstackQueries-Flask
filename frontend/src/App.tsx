@@ -38,7 +38,7 @@ export default function App() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const { data: items = [], isPending, isError, error } = useTodos();
+  const { data: items = [], isLoading, isFetching, isError, error } = useTodos();
   const saveMutation = useSaveTodo();
   const toggleMutation = useToggleTodoStatus();
   const deleteMutation = useDeleteTodo();
@@ -46,8 +46,6 @@ export default function App() {
   const completedTasks = items.filter((item) => item.status === "completed").length;
   const pendingTasks = items.filter((item) => item.status === "pending").length;
 
-  const isSaving = saveMutation.isPending;
-  const isBusy = isSaving || toggleMutation.isPending;
 
   function resetForm() {
     setName("");
@@ -165,7 +163,6 @@ export default function App() {
                   placeholder="Enter your task"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  disabled={isSaving}
                   required
                 />
 
@@ -173,7 +170,6 @@ export default function App() {
                   ref={fileInputRef}
                   type="file"
                   accept=".jpg,.jpeg,.png,image/jpeg,image/png"
-                  disabled={isSaving}
                   onChange={(e) =>
                     setFile(e.target.files?.[0] ?? null)
                   }
@@ -186,12 +182,11 @@ export default function App() {
                 placeholder="Add a description (optional)"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                disabled={isSaving}
               />
 
               <div className="flex flex-wrap gap-2">
-                <Button type="submit" disabled={isSaving}>
-                  {isSaving
+                <Button type="submit" disabled={saveMutation.isPending}>
+                  {saveMutation.isPending
                     ? "Saving..."
                     : editId !== null
                       ? "Update Task"
@@ -203,7 +198,7 @@ export default function App() {
                     type="button"
                     variant="outline"
                     onClick={resetForm}
-                    disabled={isSaving}
+                    disabled={saveMutation.isPending}
                   >
                     Cancel
                   </Button>
@@ -239,9 +234,15 @@ export default function App() {
             </div>
           </div>
 
-          {isPending && (
+          {isLoading && (
             <p className="text-center text-sm text-slate-500">
               Loading tasks...
+            </p>
+          )}
+
+          {isFetching && !isLoading && (
+            <p className="text-sm text-slate-500">
+              Refreshing tasks...
             </p>
           )}
 
@@ -257,7 +258,7 @@ export default function App() {
             </p>
           )}
 
-          {!isPending && !isError && items.length === 0 && (
+          {!isLoading && !isError && items.length === 0 && (
             <Card className="border-dashed shadow-none">
               <CardContent className="flex flex-col items-center px-4 py-12 text-center">
                 <p className="font-semibold text-slate-800">
@@ -282,7 +283,7 @@ export default function App() {
                       <div className="flex justify-center pt-1">
                         <Checkbox
                           checked={item.status === "completed"}
-                          disabled={isBusy}
+                          disabled={toggleMutation.isPending}
                           onCheckedChange={() =>
                             handleToggleStatus(item)
                           }
@@ -322,7 +323,7 @@ export default function App() {
                           type="button"
                           variant="outline"
                           size="sm"
-                          disabled={isSaving}
+                          disabled={saveMutation.isPending}
                           onClick={() => handleEdit(item)}
                           aria-label={`Edit ${item.name}`}
                         >
