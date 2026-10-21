@@ -38,7 +38,7 @@ export default function App() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const { data: items = [], isLoading, isFetching, isError, error } = useTodos();
+  const { data: items = [], isLoading, isError, error } = useTodos();
   const saveMutation = useSaveTodo();
   const toggleMutation = useToggleTodoStatus();
   const deleteMutation = useDeleteTodo();
@@ -237,12 +237,6 @@ export default function App() {
           {isLoading && (
             <p className="text-center text-sm text-slate-500">
               Loading tasks...
-            </p>
-          )}
-
-          {isFetching && !isLoading && (
-            <p className="text-sm text-slate-500">
-              Refreshing tasks...
             </p>
           )}
 
